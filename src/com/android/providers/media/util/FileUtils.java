@@ -887,10 +887,11 @@ public class FileUtils {
             "(?i)^/storage/[^/]+/(?:[0-9]+/)?Android/(?:data|media|obb|sandbox)/([^/]+)(/?.*)?");
 
     /**
-     * Regex that matches Android/obb or Android/data path.
+     * Regex that matches exactly Android/obb or Android/data or Android/obb/ or Android/data/
+     * suffix absolute file path.
      */
     private static final Pattern PATTERN_DATA_OR_OBB_PATH = Pattern.compile(
-            "(?i)^/storage/[^/]+/(?:[0-9]+/)?Android/(?:data|obb)(?:/.*)?$");
+            "(?i)^/storage/[^/]+/(?:[0-9]+/)?Android/(?:data|obb)/?$");
 
      /**
      * Regex that matches paths in all well-known package-specific relative directory
@@ -974,7 +975,9 @@ public class FileUtils {
     }
 
     public static @Nullable String extractRelativePath(@Nullable String data) {
+        data = getCanonicalPath(data);
         if (data == null) return null;
+
         final Matcher matcher = PATTERN_RELATIVE_PATH.matcher(data);
         if (matcher.find()) {
             final int lastSlash = data.lastIndexOf('/');
@@ -1203,9 +1206,18 @@ public class FileUtils {
             resolvedDisplayName = displayName;
         }
 
-        final File filePath = buildPath(volumePath,
-                values.getAsString(MediaColumns.RELATIVE_PATH), resolvedDisplayName);
-        values.put(MediaColumns.DATA, filePath.getAbsolutePath());
+        String relativePath = values.getAsString(MediaColumns.RELATIVE_PATH);
+        if (relativePath == null) {
+          relativePath = "";
+        }
+        try {
+            final File filePath = buildPath(volumePath, relativePath, resolvedDisplayName);
+            values.put(MediaColumns.DATA, filePath.getCanonicalPath());
+        } catch (IOException e) {
+            throw new IllegalArgumentException(
+                    String.format("Failure in conversion to canonical file path. Failure path: %s.",
+                            relativePath.concat(resolvedDisplayName)), e);
+        }
     }
 
     public static void sanitizeValues(@NonNull ContentValues values,
@@ -1367,5 +1379,17 @@ public class FileUtils {
             }
         }
         return status;
+    }
+
+    @Nullable
+    private static String getCanonicalPath(@Nullable String path) {
+        if (path == null) return null;
+
+        try {
+            return new File(path).getCanonicalPath();
+        } catch (IOException e) {
+            Log.d(TAG, "Unable to get canonical path from invalid data path: " + path, e);
+            return null;
+        }
     }
 }
